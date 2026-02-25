@@ -4,7 +4,7 @@
         Title="Информация об авторе" 
         Height="200" 
         Width="300">
-    <Grid>
+    <Grid Margin="0,0,0,-18">
         <StackPanel Margin="20">
             <TextBlock Text="Автор изменения:" 
                        FontSize="16" 

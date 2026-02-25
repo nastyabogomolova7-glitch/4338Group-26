@@ -17,11 +17,16 @@ namespace Group4338
     /// <summary>
     /// Логика взаимодействия для _4338_Bogomolova.xaml
     /// </summary>
-    public partial class _4338_Bogomolova : Window
-    {
-        public _4338_Bogomolova()
+public partial class _4338_Bogomolova : Window
         {
-            InitializeComponent();
+            public _4338_Bogomolova()
+            {
+                InitializeComponent();
+            }
+
+            private void CloseButton_Click(object sender, RoutedEventArgs e)
+            {
+                this.Close();
+            }
         }
     }
-}
