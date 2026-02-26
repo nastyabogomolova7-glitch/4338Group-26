@@ -1,10 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Windows;
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Win32;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Windows;
 
 namespace Group4338
 {
@@ -75,41 +80,6 @@ namespace Group4338
             return services;
         }
 
-        private void CreateDatabaseTable()
-        {
-            using (var conn = new SqliteConnection(dbPath))
-            {
-                conn.Open();
-                var cmd = conn.CreateCommand();
-                cmd.CommandText = "CREATE TABLE IF NOT EXISTS Services (Id INTEGER PRIMARY KEY, Name TEXT, Type TEXT, Code TEXT, CostPerHour REAL)";
-                cmd.ExecuteNonQuery();
-            }
-        }
-
-        private void SaveToDatabase(List<Service> services)
-        {
-            using (var conn = new SqliteConnection(dbPath))
-            {
-                conn.Open();
-
-                var clearCmd = conn.CreateCommand();
-                clearCmd.CommandText = "DELETE FROM Services";
-                clearCmd.ExecuteNonQuery();
-
-                foreach (var s in services)
-                {
-                    var cmd = conn.CreateCommand();
-                    cmd.CommandText = "INSERT INTO Services (Id, Name, Type, Code, CostPerHour) VALUES (@Id, @Name, @Type, @Code, @Cost)";
-                    cmd.Parameters.AddWithValue("@Id", s.Id);
-                    cmd.Parameters.AddWithValue("@Name", s.Name);
-                    cmd.Parameters.AddWithValue("@Type", s.Type);
-                    cmd.Parameters.AddWithValue("@Code", s.Code);
-                    cmd.Parameters.AddWithValue("@Cost", s.CostPerHour);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-        }
-
         private void BtnExport_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -142,6 +112,210 @@ namespace Group4338
             {
                 MessageBox.Show("Ошибка экспорта: " + ex.Message,
                     "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnImportJson_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var openFileDialog = new OpenFileDialog
+                {
+                    Filter = "JSON files|*.json",
+                    FileName = "1.json",
+                    Title = "Выберите файл 1.json"
+                };
+
+                if (openFileDialog.ShowDialog() != true)
+                    return;
+
+                string filePath = openFileDialog.FileName;
+                var services = ImportFromJson(filePath);
+                SaveToDatabase(services);
+
+                MessageBox.Show($"✓ Успешно импортировано {services.Count} записей из JSON!",
+                    "Импорт JSON завершён", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"✗ Ошибка импорта JSON: {ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnExportWord_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var services = LoadAllServices();
+
+                if (services.Count == 0)
+                {
+                    MessageBox.Show("Сначала импортируйте данные!",
+                        "Нет данных", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var saveFileDialog = new SaveFileDialog
+                {
+                    Filter = "Word documents|*.docx",
+                    FileName = "Services_Group4338.docx",
+                    Title = "Сохранить результат экспорта в Word"
+                };
+
+                if (saveFileDialog.ShowDialog() != true)
+                    return;
+
+                ExportGroupedToWord(services, saveFileDialog.FileName);
+
+                MessageBox.Show($"✓ Экспорт в Word завершён!\nФайл: {saveFileDialog.FileName}",
+                    "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"✗ Ошибка экспорта в Word: {ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private List<Service> ImportFromJson(string filePath)
+        {
+            var jsonContent = File.ReadAllText(filePath);
+
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            var jsonServices = JsonSerializer.Deserialize<List<JsonService>>(jsonContent, options);
+
+            var services = new List<Service>();
+            foreach (var js in jsonServices)
+            {
+                services.Add(new Service
+                {
+                    Id = js.IdServices,
+                    Name = js.NameServices,
+                    Type = js.TypeOfService,
+                    Code = js.CodeService,
+                    CostPerHour = js.Cost
+                });
+            }
+            return services;
+        }
+
+        private class JsonService
+        {
+            public int IdServices { get; set; }
+            public string NameServices { get; set; }
+            public string TypeOfService { get; set; }
+            public string CodeService { get; set; }
+            public decimal Cost { get; set; }
+        }
+
+        private void ExportGroupedToWord(List<Service> services, string outputPath)
+        {
+            var grouped = services
+                .GroupBy(s => s.Type)
+                .OrderBy(g => g.Key)
+                .ToDictionary(g => g.Key, g => g.OrderBy(s => s.CostPerHour).ToList());
+
+            using (WordprocessingDocument doc = WordprocessingDocument
+                .Create(outputPath, WordprocessingDocumentType.Document))
+            {
+                MainDocumentPart mainPart = doc.AddMainDocumentPart();
+                mainPart.Document = new Document(new Body());
+                Body body = mainPart.Document.Body;
+
+                int categoryIndex = 0;
+                foreach (var category in grouped)
+                {
+                    var titleParagraph = body.AppendChild(new Paragraph());
+                    var titleRun = titleParagraph.AppendChild(new Run());
+                    titleRun.AppendChild(new Text(category.Key));
+                    titleRun.RunProperties = new RunProperties(new Bold());
+                    body.AppendChild(new Paragraph()); 
+
+                    var table = body.AppendChild(new Table());
+
+                    var headerRow = new TableRow(
+                        CreateTableCell("Id", true),
+                        CreateTableCell("Название услуги", true),
+                        CreateTableCell("Стоимость", true)
+                    );
+                    table.Append(headerRow);
+
+                    foreach (var service in category.Value)
+                    {
+                        var row = new TableRow(
+                            CreateTableCell(service.Id.ToString()),
+                            CreateTableCell(service.Name),
+                            CreateTableCell($"{service.CostPerHour} руб.")
+                        );
+                        table.Append(row);
+                    }
+
+                    categoryIndex++;
+                    if (categoryIndex < grouped.Count)
+                    {
+                        body.AppendChild(new Paragraph(new Run(new Break() { Type = BreakValues.Page })));
+                    }
+                }
+
+                mainPart.Document.Save();
+            }
+        }
+
+        private TableCell CreateTableCell(string text, bool isHeader = false)
+        {
+            var cell = new TableCell();
+            var paragraph = new Paragraph();
+            var run = new Run(new Text(text));
+
+            if (isHeader)
+            {
+                run.RunProperties = new RunProperties(new Bold());
+            }
+
+            paragraph.Append(run);
+            cell.Append(paragraph);
+            return cell;
+        }
+
+
+        private void CreateDatabaseTable()
+        {
+            using (var conn = new SqliteConnection(dbPath))
+            {
+                conn.Open();
+                var cmd = conn.CreateCommand();
+                cmd.CommandText = "CREATE TABLE IF NOT EXISTS Services (Id INTEGER PRIMARY KEY, Name TEXT, Type TEXT, Code TEXT, CostPerHour REAL)";
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private void SaveToDatabase(List<Service> services)
+        {
+            using (var conn = new SqliteConnection(dbPath))
+            {
+                conn.Open();
+
+                var clearCmd = conn.CreateCommand();
+                clearCmd.CommandText = "DELETE FROM Services";
+                clearCmd.ExecuteNonQuery();
+
+                foreach (var s in services)
+                {
+                    var cmd = conn.CreateCommand();
+                    cmd.CommandText = "INSERT OR REPLACE INTO Services (Id, Name, Type, Code, CostPerHour) VALUES (@Id, @Name, @Type, @Code, @Cost)";
+                    cmd.Parameters.AddWithValue("@Id", s.Id);
+                    cmd.Parameters.AddWithValue("@Name", s.Name);
+                    cmd.Parameters.AddWithValue("@Type", s.Type);
+                    cmd.Parameters.AddWithValue("@Code", s.Code);
+                    cmd.Parameters.AddWithValue("@Cost", s.CostPerHour);
+                    cmd.ExecuteNonQuery();
+                }
             }
         }
 

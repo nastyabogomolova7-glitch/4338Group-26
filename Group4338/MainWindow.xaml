@@ -39,6 +39,27 @@
                     Height="40" 
                     Width="200"
                     HorizontalAlignment="Left"/>
+
+            <Separator Margin="0,10,0,10" Background="#CCCCCC" Height="2"/>
+
+            <Button Content="Импорт JSON данных" 
+                    Click="BtnImportJson_Click"
+                    Margin="0,0,0,10"
+                    Height="40" 
+                    Width="200"
+                    HorizontalAlignment="Left"
+                    Background="#E3F2FD"
+                    FontWeight="Medium"/>
+
+            <Button Content="Экспорт в Word" 
+                    Click="BtnExportWord_Click"
+                    Margin="0,0,0,10"
+                    Height="40" 
+                    Width="200"
+                    HorizontalAlignment="Left"
+                    Background="#E8F5E9"
+                    FontWeight="Medium"/>
+
         </StackPanel>
     </Grid>
 </Window>
